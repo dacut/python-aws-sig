@@ -8,17 +8,10 @@ or to rewrite AWS requests through a proxy host.
 The current source tree can be found on
 `GitHub <https://github.com/dacut/python-aws-sig>`_.
 
-.. todo:: Currently only `SigV4`_ is supported.
+Documentation is available on
+`pythonhosted <https://pythonhosted.org/awssig/>`_.
 
-Contents:
-
-.. toctree::
-   :maxdepth: 2
-
-   awssig
-   exc
-   sigv4
-
+Currently only `SigV4`_ is supported.
               
 Example Usage
 ------------------------------------------------------------------------------
@@ -53,12 +46,5 @@ Example Usage
    ... except awssig.InvalidSignatureError as e:
    ...     print("error: %s" % e)
    ok
-
-Indices and tables
-------------------------------------------------------------------------------
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
 
 .. _SigV4: http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
