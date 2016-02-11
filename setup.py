@@ -13,7 +13,7 @@ if six.PY2:
 
 setup(
     name="awssig",
-    version="0.2",
+    version="0.2.1",
     packages=['awssig'],
     install_requires=["six>=1.0"],
     setup_requires=setup_requires,
@@ -29,6 +29,8 @@ setup(
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python',
+        'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 3',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
     keywords = ['aws', 'signature'],
