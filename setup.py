@@ -1,17 +1,22 @@
 #!/usr/bin/env python
 from __future__ import absolute_import, division, print_function
+import six
 from setuptools import setup, Command
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("nose").setLevel(logging.DEBUG)
 
+setup_requires=["nose>=1.0", "coverage>=4.0", "Sphinx>=1.3"]
+if six.PY2:
+    setup_requires.append("Sphinx-PyPI-upload>=0.2")
+
 setup(
     name="awssig",
-    version="0.1",
+    version="0.2",
     packages=['awssig'],
     install_requires=["six>=1.0"],
-    setup_requires=["nose>=1.0", "coverage>=4.0"],
+    setup_requires=setup_requires,
 
     # PyPI information
     author="David Cuthbert",
