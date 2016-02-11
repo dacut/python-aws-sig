@@ -5,7 +5,8 @@ This library provides signature verification for requests made to an AWS
 service. Typically, this is used to provide mock interfaces for AWS services
 or to rewrite AWS requests through a proxy host.
 
-The current source tree can be found at <https://github.com/dacut/python-aws-sig>_.
+The current source tree can be found on
+`GitHub <https://github.com/dacut/python-aws-sig>`_.
 
 .. todo:: Currently only `SigV4`_ is supported.
 
