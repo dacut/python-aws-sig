@@ -10,19 +10,19 @@ setup(
     name="awssig",
     version="0.1",
     packages=['awssig'],
-    install_requires=["boto>=2.0", "pycrypto>=2.6", "six>=1.0"],
+    install_requires=["six>=1.0"],
     setup_requires=["nose>=1.0", "coverage>=4.0"],
 
     # PyPI information
     author="David Cuthbert",
     author_email="dacut@kanga.org",
     description="AWS signature verification routines",
-    license="BSD",
+    license="Apache 2.0",
     url="https://github.com/dacut/python-aws-sig",
     classifiers=[
         'Development Status :: 2 - Pre-Alpha',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: BSD License',
+        'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
