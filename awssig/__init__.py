@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-from __future__ import absolute_import, division, print_function
-from .sigv4 import AWSSigV4Verifier
+from __future__ import absolute_import
+from .sigv4 import AWSSigV4Verifier, InvalidSignatureError
 
 # Local variables:
 # mode: Python

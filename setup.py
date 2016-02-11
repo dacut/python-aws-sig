@@ -8,7 +8,7 @@ logging.getLogger("nose").setLevel(logging.DEBUG)
 
 setup(
     name="awssig",
-    version="1.0",
+    version="0.1",
     packages=['awssig'],
     install_requires=["boto>=2.0", "pycrypto>=2.6", "six>=1.0"],
     setup_requires=["nose>=1.0", "coverage>=4.0"],
