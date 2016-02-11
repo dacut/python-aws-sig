@@ -1,6 +1,8 @@
 #!/usr/bin/env python
+from __future__ import absolute_import
 from collections import OrderedDict
 from datetime import datetime, timedelta
+from .exc import InvalidSignatureError
 from hashlib import sha256
 import hmac
 from re import compile as re_compile
@@ -54,12 +56,6 @@ _iso8601_timestamp_regex = re_compile(
 
 # Match for multiple slashes
 _multislash = re_compile(r"//+")
-
-class InvalidSignatureError(Exception):
-    """
-    An exception indicating that the signature on the request was invalid.
-    """
-    pass
 
 class AWSSigV4Verifier(object):
     def __init__(self, request_method, uri_path, query_string, headers,
@@ -501,9 +497,9 @@ def normalize_query_parameters(query_string):
     """
     normalize_query_parameters(query_string) -> dict
 
-    Converts a query string into a list of parameters.  This ensurses that the
-    query string follows % encoding rules according to RFC 3986 and checks
-    for duplicate keys.
+    Converts a query string into a dictionary mapping parameter names to a
+    list of the sorted values.  This ensurses that the query string follows
+    % encoding rules according to RFC 3986 and checks for duplicate keys.
 
     A ValueError exception is raised if a percent encoding is invalid.
     """
