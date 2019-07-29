@@ -316,13 +316,18 @@ class AWSSigV4Verifier(object):
         header_lines = "".join(
             ["%s:%s\n" % item for item in iteritems(signed_headers)])
         header_keys = ";".join([key for key in iterkeys(self.signed_headers)])
-        
+        # Payload not signed if transfered securely via HTTPS
+        if self.headers.get('x-amz-content-sha256') == 'UNSIGNED-PAYLOAD':
+            hashed_payload = 'UNSIGNED-PAYLOAD'
+        else:
+            hashed_payload = sha256(self.body).hexdigest()
+
         return (self.request_method + "\n" +
                 self.canonical_uri_path + "\n" +
                 self.canonical_query_string + "\n" +
                 header_lines + "\n" +
                 header_keys + "\n" +
-                sha256(self.body).hexdigest())
+                hashed_payload)
 
     @property
     def string_to_sign(self):
