@@ -29,6 +29,8 @@ delete_date = "delete_date"
 # Allowed characters in quoted-printable strings
 allowed_qp = ascii_letters + digits + "-_.~"
 
+ONE_THOUSAND_YEARS = 1000 * 365 * 24 * 60 * 60
+
 class AWSSigV4TestCaseRunner(TestCase):
     def __init__(self, filebase, tweaks="", methodName="runTest"):
         super(AWSSigV4TestCaseRunner, self).__init__(methodName=methodName)
@@ -102,8 +104,9 @@ class AWSSigV4TestCaseRunner(TestCase):
             string_to_sign = fd.read().replace("\r", "")
 
         v = sigv4.AWSSigV4Verifier(
-            method, uri_path, query_string, headers, body, region, service,
-            key_mapping, None)
+            request_method=method, uri_path=uri_path, query_string=query_string,
+            headers=headers, body=body, region=region, service=service,
+            key_mapping=key_mapping, timestamp_mismatch=ONE_THOUSAND_YEARS)
 
         if self.tweaks:
             try:
@@ -132,12 +135,18 @@ class AWSSigV4TestCaseRunner(TestCase):
 
 class QuerySignatures(TestCase):
     def runTest(self):
+        now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ten_minutes_ago = (
+            datetime.utcnow() - timedelta(minutes=10)).strftime("%Y%m%dT%H%M%SZ")
+        today = datetime.utcnow().strftime("%Y%m%d")
+        two_days_ago = (datetime.utcnow() - timedelta(days=2)).strftime("%Y%m%d")
+
         tests = [
             {
                 'method': "GET",
                 'url': "/?foo=bar",
                 'body': b"",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
                     'host': "host.us-east-1.amazonaws.com",
@@ -147,7 +156,7 @@ class QuerySignatures(TestCase):
                 'method': "GET",
                 'url': "/?foo=bar&&baz=yay",
                 'body': b"",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
                     'host': "host.us-east-1.amazonaws.com",
@@ -157,7 +166,7 @@ class QuerySignatures(TestCase):
                 'method': "POST",
                 'url': "////",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -168,7 +177,7 @@ class QuerySignatures(TestCase):
                 'method': "POST",
                 'url': "/",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -180,7 +189,7 @@ class QuerySignatures(TestCase):
                 'method': "GET",
                 'url': "/?foo=bar",
                 'body': b"",
-                'timestamp': datetime.utcnow().strftime("%Y%m%dT%H%M%SZ"),
+                'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
                     'host': "host.us-east-1.amazonaws.com",
@@ -194,7 +203,7 @@ class QuerySignatures(TestCase):
                 'method': "POST",
                 'url': "////",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 # Decanonicalized signed-headers
                 'signed_headers': ["host", "content-type"],
                 'headers': {
@@ -206,7 +215,7 @@ class QuerySignatures(TestCase):
                 'method': "POST",
                 'url': "////",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -220,7 +229,7 @@ class QuerySignatures(TestCase):
                 # Bad path encoding
                 'url': "/%zz",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -232,7 +241,7 @@ class QuerySignatures(TestCase):
                 # Relative path
                 'url': "../foo",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -244,7 +253,7 @@ class QuerySignatures(TestCase):
                 # Go up too far.
                 'url': "/a/b/../../..",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -255,28 +264,28 @@ class QuerySignatures(TestCase):
                 'method': "POST",
                 'url': "////",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
                     'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
                 },
                 # Incorrect region
-                'scope': (access_key + "/20151007/x-foo-bar/" + service +
+                'scope': (access_key + "/" + today + "/x-foo-bar/" + service +
                           "/aws4_request")
             },
             {
                 'method': "POST",
                 'url': "////",
                 'body': b"foo=bar",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
                     'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
                 },
                 # Incorrect date
-                'scope': (access_key + "/20151008/" + region + "/" + service +
+                'scope': (access_key + "/" + two_days_ago + "/" + region + "/" + service +
                           "/aws4_request")
             },
             {
@@ -284,7 +293,7 @@ class QuerySignatures(TestCase):
                 'url': "////",
                 # Invalid percent encoding
                 'body': b"foo=%zz",
-                'timestamp': "20151007T231257Z",
+                'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': "host.example.com",
@@ -297,8 +306,7 @@ class QuerySignatures(TestCase):
                 'url': "/?foo=bar",
                 'body': b"",
                 # Old
-                'timestamp': ((datetime.utcnow() - timedelta(0, 400))
-                              .strftime("%Y%m%dT%H%M%SZ")),
+                'timestamp': ten_minutes_ago,
                 'signed_headers': ["host"],
                 'headers': {
                     'host': "host.us-east-1.amazonaws.com",
@@ -333,7 +341,7 @@ class QuerySignatures(TestCase):
         return
     
     def verify(self, method, url, body, timestamp, headers, signed_headers,
-               timestamp_mismatch=None, bad=False, scope=None,
+               timestamp_mismatch=60, bad=False, scope=None,
                quote_chars=False, fix_qp=True):
         date = timestamp[:8]
         credential_scope = "/".join([date, region, service, "aws4_request"])
@@ -420,12 +428,14 @@ class QuerySignatures(TestCase):
             query_params = bad_qp
 
         v = sigv4.AWSSigV4Verifier(
-            method, uri, "&".join(query_params), headers, body, region,
-            service, key_mapping, timestamp_mismatch)
+            request_method=method, uri_path=uri,
+            query_string="&".join(query_params), headers=headers, body=body,
+            region=region, service=service, key_mapping=key_mapping,
+            timestamp_mismatch=timestamp_mismatch)
         
         if not bad:
-            self.assertEquals(v.canonical_request, canonical_req)
-            self.assertEquals(v.string_to_sign, string_to_sign)
+            self.assertEqual(v.canonical_request, canonical_req)
+            self.assertEqual(v.string_to_sign, string_to_sign)
         v.verify()
         return
 

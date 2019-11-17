@@ -1,17 +1,21 @@
-#!/usr/bin/env python
+"""
+SigV4 authentication routines.
+"""
+
 from __future__ import absolute_import
 from collections import OrderedDict
-from datetime import datetime, timedelta
-from .exc import InvalidSignatureError
 from hashlib import sha256
 import hmac
 from re import compile as re_compile
+from string import ascii_letters, digits
+from datetime import datetime, timedelta
 from six import (
     BytesIO, binary_type, indexbytes, int2byte, iterbytes, iteritems,
     iterkeys, string_types)
-from six.moves import cStringIO
-from six.moves.urllib.parse import unquote as url_unquote
-from string import ascii_letters, digits
+from six.moves.urllib.parse import unquote as url_unquote # pylint: disable=E0401
+from .exc import InvalidSignatureError
+
+# pylint: disable=C0103
 
 # Algorithm for AWS SigV4
 AWS4_HMAC_SHA256 = "AWS4-HMAC-SHA256"
@@ -58,46 +62,198 @@ _iso8601_timestamp_regex = re_compile(
 _multislash = re_compile(r"//+")
 
 class AWSSigV4Verifier(object):
-    def __init__(self, request_method, uri_path, query_string, headers,
-                 body, region, service, key_mapping, timestamp_mismatch=60):
-        """
-        AWSSigV4Verifier(request_method, uri_path, query_string, headers, body, region, service, key_mapping, timestamp_mismatch=60)
+    # pylint: disable=R0902,R0904
+    """
+    Verify that a query matches the expectations of AWS SigV4.
+    """
 
-        Create a new AWSSigV4Verifier instance.
+    def __init__(self, **kw):
+        """
+        AWSSigV4Verifier(
+            request_method: str,
+            uri_path: str,
+            query_string: str,
+            headers: Dict[str, str],
+            body: bytes,
+            region: str,
+            service: str,
+            key_mapping: Callable[[str, Optional[str]], Optional[str]],
+            timestamp_mismatch: int=60)
+
+        Create a new AWSSigV4Verifier instance. Properties can be specified
+        as keyword arguments.
+
+        request_method: The HTTP request method (GET, PUT, POST, etc.).
+        uri_path: The path accessed (usually just "/").
+        query_string: The query string portion of the URI.
+        headers: A dictionary mapping HTTP headers to their values.
+        body: The request body (if any). This should be undecoded (bytes, not
+            a Unicode str)
+        region: The AWS region (or pseudo-region) the service is running in.
+        service: The name of the service being authorized against.
+        kep_mapping: A callable object that will be invoked to return a
+            secret key. This will be invoked with one or two arguments.
+
+            If only an access key is specified, it will be invoked as:519
+                key_mapping(aws_access_key_id=access_key)
+
+            If an access key and token are specified, it will be invoked as:
+                key_mapping(aws_access_key_id=access_key,
+                            aws_session_token=token)
+
+            The return value is either a string specifying the corresponding
+            secret key or None to indicate the access key is invalid.
         """
         super(AWSSigV4Verifier, self).__init__()
+        self._request_method = "GET"
+        self._uri_path = "/"
+        self._query_string = ""
+        self._body = b""
+        self._region = "us-east-1"
+        self._service = "none"
+        self._key_mapping = lambda *args: None
+        self._headers = {}
+        self._timestamp_mismatch = 60
 
-        l = locals()
-        
-        # Verify string parameters
-        for param in ["request_method", "uri_path", "query_string", "region",
-                      "service"]:
-            if not isinstance(l[param], string_types):
-                raise TypeError("Expected %s to be a string" % param)
+        for key, value in kw.items():
+            setattr(self, key, value)
+        return
 
-        if not isinstance(body, binary_type):
-            raise TypeError("Expected body to be a bytes object")
+    @property
+    def request_method(self):
+        """
+        The HTTP method (GET, SET, PUT) used to make the request.
+        """
+        return self._request_method
 
-        for key, value in list(iteritems(headers)):
-            if not isinstance(key, string_types):
-                raise TypeError("Invalid key (not a string) in headers: %r" %
-                                key)
+    @request_method.setter
+    def request_method(self, value):
+        if not isinstance(value, string_types):
+            raise TypeError("Expected request_method to be a string.")
 
-            if not isinstance(value, string_types):
-                raise TypeError("Invalid value type (not a string) in "
-                                "header %s: %r" % (key, value))
+        self._request_method = value
+        return
 
-            headers[key] = value
+    @property
+    def uri_path(self):
+        """
+        The path component of the URI.
+        """
+        return self._uri_path
 
-        self.request_method = request_method
-        self.uri_path = uri_path
-        self.query_string = query_string
-        self.headers = headers
-        self.body = body
-        self.region = region
-        self.service = service
-        self.key_mapping = key_mapping
-        self.timestamp_mismatch = timestamp_mismatch
+    @uri_path.setter
+    def uri_path(self, value):
+        if not isinstance(value, string_types):
+            raise TypeError("Expected uri_path to be a string.")
+
+        self._uri_path = value
+        return
+
+    @property
+    def query_string(self):
+        """
+        The query string portion of the URI.
+        """
+        return self._query_string
+
+    @query_string.setter
+    def query_string(self, value):
+        if not isinstance(value, string_types):
+            raise TypeError("Expected query_string to be a string.")
+
+        self._query_string = value
+        return
+
+    @property
+    def body(self):
+        """
+        The body sent with the HTTP request (for PUT and POST requests).
+        """
+        return self._body
+
+    @body.setter
+    def body(self, value):
+        if not isinstance(value, binary_type):
+            raise TypeError("Expected body to be a byte array.")
+
+        self._body = value
+        return
+
+    @property
+    def region(self):
+        """
+        The region the service is running in.
+        """
+        return self._region
+
+    @region.setter
+    def region(self, value):
+        if not isinstance(value, string_types):
+            raise TypeError("Expected region to be a string.")
+
+        self._region = value
+        return
+
+    @property
+    def service(self):
+        """
+        The name of the service being invoked.
+        """
+        return self._service
+
+    @service.setter
+    def service(self, value):
+        if not isinstance(value, string_types):
+            raise TypeError("Expected service to be a string.")
+
+        self._service = value
+        return
+
+    @property
+    def key_mapping(self):
+        """
+        A function that converts an AWS access key and, optionally, an AWS
+        token, and returns the corresponding secret key (or None if the
+        access key or token are invalid).
+        """
+        return self._key_mapping
+
+    @key_mapping.setter
+    def key_mapping(self, value):
+        self._key_mapping = value
+        return
+
+    @property
+    def headers(self):
+        """
+        The HTTP headers sent with the request
+        """
+        return self._headers
+
+    @headers.setter
+    def headers(self, value):
+        if not isinstance(value, dict):
+            raise TypeError("Expected headers to be a dict.")
+
+        self._headers = dict(value)
+        return
+
+    @property
+    def timestamp_mismatch(self):
+        """
+        The allowable mismatch in the timestamp, in seconds.
+        """
+        return self._timestamp_mismatch
+
+    @timestamp_mismatch.setter
+    def timestamp_mismatch(self, value):
+        if not isinstance(value, (int, float)):
+            raise TypeError("Expected timestamp_mismatch to be a number.")
+
+        if value < 0:
+            raise ValueError("timestamp_mismatch cannot be negative.")
+
+        self._timestamp_mismatch = value
         return
 
     @property
@@ -105,11 +261,7 @@ class AWSSigV4Verifier(object):
         """
         The canonicalized URI path from the request.
         """
-        result = getattr(self, "_canonical_uri_path", None)
-        if result is None:
-            result = self._canonical_uri_path = get_canonical_uri_path(
-                self.uri_path)
-        return result
+        return get_canonical_uri_path(self.uri_path)
 
     @property
     def query_parameters(self):
@@ -117,11 +269,7 @@ class AWSSigV4Verifier(object):
         A key to list of values mapping of the query parameters seen in the
         request.
         """
-        result = getattr(self, "_query_parameters", None)
-        if result is None:
-            result = self._query_parameters = normalize_query_parameters(
-                self.query_string)
-        return result
+        return normalize_query_parameters(self.query_string)
 
     @property
     def canonical_query_string(self):
@@ -129,14 +277,14 @@ class AWSSigV4Verifier(object):
         The canonical query string from the query parameters.
 
         This takes the query string from the request and orders the parameters
-        in 
+        in
         """
         results = []
         for key, values in iteritems(self.query_parameters):
             # Don't include the signature itself.
             if key == _x_amz_signature:
                 continue
-            
+
             for value in values:
                 results.append("%s=%s" % (key, value))
 
@@ -149,31 +297,27 @@ class AWSSigV4Verifier(object):
         Authorization header is not present or is not an AWS SigV4 header, an
         AttributeError exception is raised.
         """
-        result = getattr(self, "_authorization_header_parameters", None)
-        if result is None:
-            auth = self.headers.get(_authorization)
-            if auth is None:
-                raise AttributeError("Authorization header is not present")
-            
-            if not auth.startswith(AWS4_HMAC_SHA256 + " "):
-                raise AttributeError("Authorization header is not AWS SigV4")
+        auth = self.headers.get(_authorization)
+        if auth is None:
+            raise AttributeError("Authorization header is not present")
 
-            result = {}
-            for parameter in auth[len(AWS4_HMAC_SHA256)+1:].split(","):
-                parameter = parameter.strip()
-                try:
-                    key, value = parameter.split("=", 1)
-                except ValueError:
-                    raise AttributeError(
-                        "Invalid Authorization header: missing '='")
+        if not auth.startswith(AWS4_HMAC_SHA256 + " "):
+            raise AttributeError("Authorization header is not AWS SigV4")
 
-                if key in result:
-                    raise AttributeError(
-                        "Invalid Authorization header: duplicate key %r" % key)
-                
-                result[key] = value
-            
-            self._authorization_header_parameters = result
+        result = {}
+        for parameter in auth[len(AWS4_HMAC_SHA256)+1:].split(","):
+            parameter = parameter.strip()
+            try:
+                key, value = parameter.split("=", 1)
+            except ValueError:
+                raise AttributeError(
+                    "Invalid Authorization header: missing '='")
+
+            if key in result:
+                raise AttributeError(
+                    "Invalid Authorization header: duplicate key %r" % key)
+
+            result[key] = value
         return result
 
     @property
@@ -295,7 +439,7 @@ class AWSSigV4Verifier(object):
             signature = self.authorization_header_parameters.get(_signature)
             if signature is None:
                 raise AttributeError("Signature was not passed in the request")
-            
+
         return signature
 
     @property
@@ -316,7 +460,7 @@ class AWSSigV4Verifier(object):
         header_lines = "".join(
             ["%s:%s\n" % item for item in iteritems(signed_headers)])
         header_keys = ";".join([key for key in iterkeys(self.signed_headers)])
-        
+
         return (self.request_method + "\n" +
                 self.canonical_uri_path + "\n" +
                 self.canonical_query_string + "\n" +
@@ -368,10 +512,15 @@ class AWSSigV4Verifier(object):
                 second = int(m.group("second"))
 
                 req_ts = datetime(year, month, day, hour, minute, second)
+                mm_td = timedelta(seconds=self.timestamp_mismatch)
                 now = datetime.utcnow()
+                min_ts = now - mm_td
+                max_ts = now + mm_td
 
-                if abs(req_ts - now) > timedelta(0, self.timestamp_mismatch):
-                    raise InvalidSignatureError("Timestamp mismatch")
+                if not (min_ts <= req_ts <= max_ts):
+                    raise InvalidSignatureError(
+                        "Timestamp mismatch: request timestamp %s outside of "
+                        "allowed range %s to %s" % (req_ts, min_ts, max_ts))
 
             if self.expected_signature != self.request_signature:
                 raise InvalidSignatureError(
@@ -418,12 +567,12 @@ def normalize_uri_path_component(path_component):
                 value = int(path_component[i+1:i+3], 16)
             except ValueError:
                 raise ValueError("Invalid %% encoding at position %d" % i)
-            
+
             if value in _rfc3986_unreserved:
                 result.write(int2byte(value))
             else:
                 result.write(b"%%%02X" % value)
-            
+
             i += 3
         elif c == _ascii_plus:
             # Plus-encoded space.  Convert this to %20.
@@ -432,7 +581,7 @@ def normalize_uri_path_component(path_component):
         else:
             result.write(b"%%%02X" % c)
             i += 1
-    
+
     result = result.getvalue()
     if not isinstance(result, string_types):
         result = str(result, "utf-8")
@@ -461,7 +610,7 @@ def get_canonical_uri_path(uri_path):
     # Replace double slashes; this makes it easier to handle slashes at the
     # end.
     uri_path = _multislash.sub("/", uri_path)
-    
+
     # Examine each path component for relative directories.
     components = uri_path.split("/")[1:]
     i = 0
@@ -469,7 +618,7 @@ def get_canonical_uri_path(uri_path):
         # Fix % encodings.
         component = normalize_uri_path_component(components[i])
         components[i] = component
-        
+
         if components[i] == ".":
             # Relative current directory.  Remove this.
             del components[i]
@@ -490,7 +639,7 @@ def get_canonical_uri_path(uri_path):
         else:
             # Leave it alone; proceed to the next component.
             i += 1
-    
+
     return "/" + "/".join(components)
 
 def normalize_query_parameters(query_string):
@@ -519,7 +668,7 @@ def normalize_query_parameters(query_string):
         if component == "":
             # Empty component; skip it.
             continue
-        
+
         key = normalize_uri_path_component(key)
         value = normalize_uri_path_component(value)
 
