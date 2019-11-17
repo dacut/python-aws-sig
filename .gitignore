@@ -65,3 +65,6 @@ target/
 
 venv
 venv-*
+
+# Visual Studio Code
+.vscode/
