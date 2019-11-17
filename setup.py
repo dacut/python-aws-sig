@@ -1,19 +1,19 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from __future__ import absolute_import, division, print_function
-import six
+from sys import version_info
 from setuptools import setup, Command
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("nose").setLevel(logging.DEBUG)
 
-setup_requires=["nose>=1.0", "coverage>=4.0", "Sphinx>=1.3"]
-if six.PY2:
-    setup_requires.append("Sphinx-PyPI-upload>=0.2")
+setup_requires=[]
+if version_info[0] > 3 or (version_info[0] == 3 and version_info[1] >= 5):
+    setup_requires.append("Sphinx>=1.3")
 
 setup(
     name="awssig",
-    version="0.2.1",
+    version="0.3.0",
     packages=['awssig'],
     install_requires=["six>=1.0"],
     setup_requires=setup_requires,
@@ -33,6 +33,6 @@ setup(
         'Programming Language :: Python :: 3',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    keywords = ['aws', 'signature'],
+    keywords = ['aws', 'signature', 'aws-sigv4'],
     zip_safe=False,
 )
