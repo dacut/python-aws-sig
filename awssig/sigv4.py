@@ -261,11 +261,12 @@ class AWSSigV4Verifier(object):
 
     @timestamp_mismatch.setter
     def timestamp_mismatch(self, value):
-        if not isinstance(value, (int, float)):
-            raise TypeError("Expected timestamp_mismatch to be a number.")
+        if value is not None:
+            if not isinstance(value, (int, float)):
+                raise TypeError("Expected timestamp_mismatch to be a number.")
 
-        if value < 0:
-            raise ValueError("timestamp_mismatch cannot be negative.")
+            if value < 0:
+                raise ValueError("timestamp_mismatch cannot be negative.")
 
         self._timestamp_mismatch = value
         return

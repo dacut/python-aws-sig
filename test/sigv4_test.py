@@ -29,8 +29,6 @@ delete_date = "delete_date"
 # Allowed characters in quoted-printable strings
 allowed_qp = ascii_letters + digits + "-_.~"
 
-ONE_THOUSAND_YEARS = 1000 * 365 * 24 * 60 * 60
-
 class AWSSigV4TestCaseRunner(TestCase):
     def __init__(self, filebase, tweaks="", methodName="runTest"):
         super(AWSSigV4TestCaseRunner, self).__init__(methodName=methodName)
@@ -106,7 +104,7 @@ class AWSSigV4TestCaseRunner(TestCase):
         v = sigv4.AWSSigV4Verifier(
             request_method=method, uri_path=uri_path, query_string=query_string,
             headers=headers, body=body, region=region, service=service,
-            key_mapping=key_mapping, timestamp_mismatch=ONE_THOUSAND_YEARS)
+            key_mapping=key_mapping, timestamp_mismatch=None)
 
         if self.tweaks:
             try:
