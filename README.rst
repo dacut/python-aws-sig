@@ -8,8 +8,8 @@ or to rewrite AWS requests through a proxy host.
 The current source tree can be found on
 `GitHub <https://github.com/dacut/python-aws-sig>`_.
 
-Documentation is available on
-`pythonhosted <https://pythonhosted.org/awssig/>`_.
+Documentation is available at
+`docs.ionosphere.io <https://docs.ionosphere.io/awssig/index.html>`_.
 
 Currently only `SigV4`_ and `SigV4S3`_ (the S3 variant of SigV4) are supported.
 
