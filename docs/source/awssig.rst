@@ -8,3 +8,4 @@ makes them available for export:
 
 - :class:`exc.InvalidSignatureError`
 - :class:`sigv4.AWSSigV4Verifier`
+- :class:`sigv4.AWSSigV4S3Verifier`

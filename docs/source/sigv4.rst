@@ -44,122 +44,169 @@ Verify an AWS SigV4 signature.
         service are not strings; body is not a string (Python 2) or
         bytes (Python 3); or headers is not a dict containg string keys and
         string values.
-    
+
     .. method:: AWSSigV4Verifier.verify()
-    
+
         Verifies that the request is properly signed.
 
         :return: ``True`` when the request is properly signed.
         :raises `awssig.exc.InvalidSignatureError`: if the request is not
             properly signed.
 
+    .. attribute:: AWSSigV4Verifier.access_key
+
+        The access key used to sign the request.
+
+        If the access key was not provided or is not in the same credential
+        scope as this request, an ``AttributeError`` exception is raised.
+
+    .. attribute:: AWSSigV4Verifier.authorization_header_parameter
+
+        The authorization header, either from the HTTP "Authorization" header.
+        If this header is not present, is present multiple times, or does not
+        begin with "AWS4-HMAC-SHA256", an ``AttributeError`` exception is
+        raised.
+
+    .. attribute:: AWSSigV4Verifier.canonical_query_string
+
+        The canonicalized form of the query string as documented in
+        `creating canonical requests`_. Note that the ``X-Amz-Signature``
+        parameter (if provided) is removed from this string.
+
+    .. attribute:: AWSSigV4Verifier.canonical_request
+
+        The AWS SigV4 canonical request given parameters from an HTTP request,
+        as described in the `creating canonical requests`_ document.
+
+        If an attribute required to compute the canonical request is not
+        present (:attr:`request_method`, :attr:`canonical_uri_path`,
+        :attr:`canonical_query_string`, or :attr:`signed_headers`), an
+        ``AttributeError`` exception is propagated.
+
     .. attribute:: AWSSigV4Verifier.canonical_uri_path
 
         A string containing the canonical URI according to `RFC 3986`_.
         Redundant ("//") and relative ("/../", "/./") path components are
         removed.
-    
-    .. attribute:: AWSSigV4Verifier.query_parameters
-              
-        A dictionary of query parameter names to a list of the values seen.
-    
-    .. attribute:: AWSSigV4Verifier.canonical_query_string
-    
-        The canonicalized form of the query string as documented in
-        `creating canonical requests`_. Note that the ``X-Amz-Signature``
-        parameter (if provided) is removed from this string.
-    
-    .. attribute:: AWSSigV4Verifier.authorization_header_parameter
-    
-        The authorization header, either from the HTTP "Authorization" header.
-        If this header is not present, is present multiple times, or does not
-        begin with "AWS4-HMAC-SHA256", an ``AttributeError`` exception is
-        raised.
-    
-    .. attribute:: AWSSigV4Verifier.signed_headers
-    
-        An ordered dictionary containing the header names and values used to
-        sign the request.
-    
-    .. attribute:: AWSSigV4Verifier.request_date
-    
-        The date of the request in ISO8601 YYYYMMDD format.
-    
-        If this is not available in the query parameters or headers, or the
-        value is not a valid format for AWS SigV4, an ``AttributeError``
-        exception is raised.
-    
-    .. attribute:: AWSSigV4Verifier.request_timestamp
-    
-        The timestamp of the request in ISO8601 YYYYMMDD'T'HHMMSS'Z' format.
-    
-        If this is not available in the query parameters or headers, or the
-        value is not a valid format for AWS SigV4, an ``AttributeError``
-        exception is raised.
-    
+
     .. attribute:: AWSSigV4Verifier.credential_scope
-    
+
         The scope of the credentials to use.
-    
+
         This is the request date, region, service, and the string
         "aws4_request" joined with slashes ('/').
-    
-    .. attribute:: AWSSigV4Verifier.access_key
-    
-        The access key used to sign the request.
-    
-        If the access key was not provided or is not in the same credential
-        scope as this request, an ``AttributeError`` exception is raised.
-    
+
+    .. attribute:: AWSSigV4Verifier.expected_signature
+
+        The AWS SigV4 signature expected from the request, as described in the
+        `calculating the signature`_ document.
+
+        If an attribute required to compute the signature is not present
+        (:attr:`access_key`, :attr:`request_date`, :attr:`region`, or
+        :attr:`service`), an ``AttributeError`` exception is propagated.
+
+        If the corresponding secret key for the :attr:`access_key` is not
+        found, a ``KeyError`` exception is propagated.
+
+    .. attribute:: AWSSigV4Verifier.headers
+
+        A dictionary containing all headers provided in the request.
+
+    .. attribute:: AWSSigV4Verifier.query_parameters
+
+        A dictionary of query parameter names to a list of the values seen.
+
+    .. attribute:: AWSSigV4Verifier.request_date
+
+        The date of the request in ISO8601 YYYYMMDD format.
+
+        If this is not available in the query parameters or headers, or the
+        value is not a valid format for AWS SigV4, an ``AttributeError``
+        exception is raised.
+
     .. attribute:: AWSSigV4Verifier.request_signature
-    
+
         The request signature passed in the request, either from the
         ``X-Amz-Signature`` query parameter or the ``Authorization`` HTTP
         header.
-    
+
         If neither of these is present, an ``AttributeError`` exception is
         raised.
-    
-    .. attribute:: AWSSigV4Verifier.canonical_request
-    
-        The AWS SigV4 canonical request given parameters from an HTTP request,
-        as described in the `creating canonical requests`_ document.
-    
-        If an attribute required to compute the canonical request is not
-        present (:attr:`request_method`, :attr:`canonical_uri_path`,
-        :attr:`canonical_query_string`, or :attr:`signed_headers`), an
-        ``AttributeError`` exception is propagated.
-    
+
+    .. attribute:: AWSSigV4Verifier.request_timestamp
+
+        The timestamp of the request in ISO8601 YYYYMMDD'T'HHMMSS'Z' format.
+
+        If this is not available in the query parameters or headers, or the
+        value is not a valid format for AWS SigV4, an ``AttributeError``
+        exception is raised.
+
+    .. attribute:: AWSSigV4Verifier.signed_headers
+
+        An ordered dictionary containing the header names and values used to
+        sign the request.
+
     .. attribute:: AWSSigV4Verifier.string_to_sign
-    
+
         The AWS SigV4 string being signed, as described in the
         `calculating the string to sign`_ document.
-    
+
         If an attribute required to compute the string to sign is not present
         (:attr:`request_timestamp`, :attr:`credential_scope`, or
         :attr:`canonical_request`), an ``AttributeError`` exception is
         propagated.
-    
-    .. attribute:: AWSSigV4Verifier.expected_signature
-    
-        The AWS SigV4 signature expected from the request, as described in the
-        `calculating the signature`_ document.
-    
-        If an attribute required to compute the signature is not present
-        (:attr:`access_key`, :attr:`request_date`, :attr:`region`, or
-        :attr:`service`), an ``AttributeError`` exception is propagated.
-    
-        If the corresponding secret key for the :attr:`access_key` is not
-        found, a ``KeyError`` exception is propagated.
+
+    .. attribute:: AWSSigV4Verifier.timestamp_mismatch
+
+        The allowable mismatch, in seconds, between the date in the request
+        (and, thus, used to sign the request) and the current time, or `None`.
+        If `None`, any timestamp is allowed. This should be used for testing
+        only.
+
+Class :class:`AWSSigV4S3Verifier`
+------------------------------------------------------------------------------
+
+Variant of AWS SigV4 for S3-style authentication. This class inherits from
+:class:`AWSSigV4Verifier` and provides the same constructor.
+
+Compared to regular SigV4, SigV43 has the following differences:
+
+    1. Consecutive slashes in URI paths are preserved: "/a//b" is a distinct
+       object from "/a/b".
+
+    2. The ``x-amz-content-sha256`` header must be present and set to either
+       the SHA-256 checksum of the content (uploaded in a single chunk),
+       ``"UNSIGNED-PAYLOAD"``, or ``"STREAMING-AWS4-HMAC-SHA256-PAYLOAD"``.
+
+    .. attribute:: AWSSigV4S3Verifier.canonical_uri_path
+
+        The canonicalized URI path from the request, but with multiple slashes
+        and dots preserved. All other characters are replaced according to
+        `RFC 3986`_.
+
+    .. attribute:: AWSSigV4S3Verifier.canonical_request
+
+        The AWS SigV4S3 canonical request given parameters from an HTTP request.
+        This is similar to the standard AWS SigV4 canonical request, but allows
+        for the replacement of the final digest line with the literal
+        ``UNSIGNED-PAYLOAD`` or ``STREAMING-AWS4-HMAC-SHA256-PAYLOAD``,
+        corresponding to the value of the (required)
+        ``x-amz-content-sha256`` header.
+
+        If an attribute required to compute the canonical request is not
+        present (:attr:`request_method`, :attr:`canonical_uri_path`,
+        :attr:`canonical_query_string`, or :attr:`signed_headers`), an
+        ``AttributeError`` exception is propagated.
+
 
 Utility Functions
 ------------------------------------------------------------------------------
-        
+
 .. function:: normalize_uri_path_component(path_component)
 
     Normalize the path component according to RFC 3986.  This performs the
     following operations:
-    
+
     * Alpha, digit, and the symbols '-', '.', '_', and '~' (unreserved
       characters) are left alone.
     * Characters outside this range are percent-encoded.
@@ -198,7 +245,7 @@ Utility Functions
     :return: the normalized query string
     :rtype: str
     :raises ValueError: if a percent encoding is invalid.
-          
+
 .. _SigV4: http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
 .. _RFC 3986: http://tools.ietf.org/html/rfc3986
 .. _creating canonical requests: http://docs.aws.amazon.com/general/latest/gr/sigv4-create-canonical-request.html
