@@ -11,8 +11,8 @@ The current source tree can be found on
 Documentation is available on
 `pythonhosted <https://pythonhosted.org/awssig/>`_.
 
-Currently only `SigV4`_ is supported.
-              
+Currently only `SigV4`_ and `SigV4S3`_ (the S3 variant of SigV4) are supported.
+
 Example Usage
 ------------------------------------------------------------------------------
 
@@ -46,5 +46,31 @@ Example Usage
    ... except awssig.InvalidSignatureError as e:
    ...     print("error: %s" % e)
    ok
+   >>> v = awssig.AWSSigV4S3Verifier(
+   ...     request_method="POST",
+   ...     uri_path="/a//b/../c",
+   ...     headers={
+   ...         "date": "Mon, 09 Sep 2011 23:36:00 GMT",
+   ...         "host": "host.foo.com",
+   ...         "authorization": (
+   ...             "AWS4-HMAC-SHA256 "
+   ...             "Credential=AKIDEXAMPLE/20110909/us-east-1/host/aws4_request, "
+   ...             "SignedHeaders=date;host, "
+   ...             "Signature=6b8af5a1e94a59c511e47267ab0cbfa1783dc42861ab7f09e0dba62680da8b28"),
+   ...         "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+   ...    },
+   ...    body=b"Hello world",
+   ...    region="us-east-1",
+   ...    service="host",
+   ...    key_mapping=key_mapping,
+   ...    timestamp_mismatch=None)
+   >>> try:
+   ...     v.verify()
+   ...     print("ok")
+   ... except awssig.InvalidSignatureError as e:
+   ...     print("error: %s" % e)
+   ok
+
 
 .. _SigV4: http://docs.aws.amazon.com/general/latest/gr/signature-version-4.html
+.. _SigV4S3: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-authenticating-requests.html
