@@ -564,7 +564,7 @@ class AWSSigV4S3Verifier(AWSSigV4Verifier):
         The canonicalized URI path from the request.
 
         This is similar to the SigV4 canonicalized URI path, but with multiple
-        slashes preserved.
+        slashes and dots preserved.
         """
         if self.uri_path == "":
             return "/"
