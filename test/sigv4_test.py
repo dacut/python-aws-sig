@@ -330,13 +330,8 @@ class QuerySignatures(TestCase):
             self.verify(**test)
 
         for test in bad:
-            try:
+            with self.assertRaises(sigv4.InvalidSignatureError):
                 self.verify(bad=True, **test)
-                self.fail("Expected test to fail: %r" % test)
-            except sigv4.InvalidSignatureError:
-                if test.get('signature') == "skip":
-                    raise
-                pass
 
         return
     
@@ -441,7 +436,7 @@ class QuerySignatures(TestCase):
 
 
 class QueryS3Signatures(TestCase):
-    def runTest(self):
+    def test_good_cases(self):
         now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         ten_minutes_ago = (
             datetime.utcnow() - timedelta(minutes=10)).strftime("%Y%m%dT%H%M%SZ")
@@ -458,6 +453,28 @@ class QueryS3Signatures(TestCase):
                 'headers': {
                     'host': "host.us-east-1.s3.amazonaws.com",
                     'x-amz-content-sha256': sha256(b"").hexdigest(),
+                },
+            },
+            {
+                'method': "GET",
+                'url': "/a/b",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': "UNSIGNED-PAYLOAD",
+                },
+            },
+            {
+                'method': "GET",
+                'url': "/a/b",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
                 },
             },
             {
@@ -514,7 +531,77 @@ class QueryS3Signatures(TestCase):
             self.verify(**test)
 
         return
-    
+
+    def test_missing_content_sha256_header(self):
+        now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ten_minutes_ago = (
+            datetime.utcnow() - timedelta(minutes=10)).strftime("%Y%m%dT%H%M%SZ")
+        today = datetime.utcnow().strftime("%Y%m%d")
+        two_days_ago = (datetime.utcnow() - timedelta(days=2)).strftime("%Y%m%d")
+
+        tests = [
+            {
+                'method': "GET",
+                'url': "/a/b",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                },
+            },
+            {
+                'method': "GET",
+                'url': "/a/b?foo=bar&&baz=yay",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                },
+            },
+        ]
+
+        for test in tests:
+            with self.assertRaises(sigv4.InvalidSignatureError):
+                self.verify(bad=True, **test)
+
+    def test_bad_content_sha256_header(self):
+        now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ten_minutes_ago = (
+            datetime.utcnow() - timedelta(minutes=10)).strftime("%Y%m%dT%H%M%SZ")
+        today = datetime.utcnow().strftime("%Y%m%d")
+        two_days_ago = (datetime.utcnow() - timedelta(days=2)).strftime("%Y%m%d")
+
+        tests = [
+            {
+                'method': "GET",
+                'url': "/a/b",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': "hello world",
+                },
+            },
+            {
+                'method': "GET",
+                'url': "/a/b?foo=bar&&baz=yay",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': "abcd1234",
+                },
+            },
+        ]
+
+        for test in tests:
+            with self.assertRaises(sigv4.InvalidSignatureError):
+                self.verify(bad=True, **test)
+
     def verify(self, method, url, body, timestamp, headers, signed_headers,
                timestamp_mismatch=60, bad=False, scope=None,
                quote_chars=False, fix_qp=True):
@@ -565,7 +652,7 @@ class QueryS3Signatures(TestCase):
             canonical_query_string + "\n" +
             canonical_headers + "\n" +
             ";".join(signed_headers) + "\n" +
-            headers["x-amz-content-sha256"])
+            headers.get("x-amz-content-sha256", sha256(body).hexdigest()))
 
         string_to_sign = (
             "AWS4-HMAC-SHA256\n" +
@@ -612,33 +699,50 @@ class QueryS3Signatures(TestCase):
         v.verify()
         return
 
-class BadTypeInitializer(TestCase):
-    def runTest(self):
-        params = ["GET", "/", "", {}, "", "", "", {}]
+class BadInitializer(TestCase):
+    def test_request_method(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(request_method=None)
 
-        for i in range(len(params)):
-            if not isinstance(params[i], string_types):
-                continue
-            args = params[:i] + [None] + params[i+1:]
-            try:
-                sigv4.AWSSigV4Verifier(*args)
-                self.fail("Expected TypeError")
-            except TypeError:
-                pass
+    def test_uri_path(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(uri_path=None)
+    
+    def test_query_string(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(query_string=None)
 
-        try:
-            sigv4.AWSSigV4Verifier("GET", "/", "", {"Host": 7}, "", "",
-                                   "", {})
-            self.fail("Expected TypeError")
-        except TypeError:
-            pass
+    def test_headers(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(headers=None)
 
-        try:
-            sigv4.AWSSigV4Verifier("GET", "/", "", {0: "Foo"}, "", "",
-                                   "", {})
-            self.fail("Expected TypeError")
-        except TypeError:
-            pass
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(headers={"Host": 0})
+
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(headers={0: "Foo"})
+
+    def test_body(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(body=None)
+
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(body=u"Hello")
+
+    def test_region(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(region=None)
+
+    def test_service(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(service=None)
+
+    def test_timestamp_mismatch(self):
+        with self.assertRaises(TypeError):
+            sigv4.AWSSigV4Verifier(timestamp_mismatch="Hello")
+
+        with self.assertRaises(ValueError):
+            sigv4.AWSSigV4Verifier(timestamp_mismatch=-1)
 
 # Hide the test case class from automatic module discovery tools.
 _test_classes = [AWSSigV4TestCaseRunner]

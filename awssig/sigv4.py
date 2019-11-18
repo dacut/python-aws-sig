@@ -42,7 +42,7 @@ _date = "date"
 _signature = "Signature"
 _signedheaders = "SignedHeaders"
 _streaming_aws4_hmac_sha256_payload = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
-_unsigned_payload = "UNSIGNED_PAYLOAD"
+_unsigned_payload = "UNSIGNED-PAYLOAD"
 _x_amz_algorithm = "X-Amz-Algorithm"
 _x_amz_content_sha256 = "x-amz-content-sha256"
 _x_amz_credential = "X-Amz-Credential"
@@ -240,6 +240,14 @@ class AWSSigV4Verifier(object):
     def headers(self, value):
         if not isinstance(value, dict):
             raise TypeError("Expected headers to be a dict.")
+
+        for key, item_value in iteritems(value):
+            if not isinstance(key, string_types):
+                raise TypeError("Header must be a string: %r" % (key,))
+
+            if not isinstance(item_value, string_types):
+                raise TypeError(
+                    "Header %r value must be a string: %r" % (key, item_value))
 
         self._headers = dict(value)
         return
@@ -586,7 +594,7 @@ class AWSSigV4S3Verifier(AWSSigV4Verifier):
                 _streaming_aws4_hmac_sha256_payload, _unsigned_payload)
                 and not _sha256_regex.match(content_sha256)):
             raise ValueError(
-                "Invalid value for x-amz-content-sha256 header")
+                "Invalid value for x-amz-content-sha256 header: %r" % (content_sha256))
         
         signed_headers = self.signed_headers
         header_lines = "".join(
