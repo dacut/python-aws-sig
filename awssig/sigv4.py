@@ -41,7 +41,10 @@ _credential = "Credential"
 _date = "date"
 _signature = "Signature"
 _signedheaders = "SignedHeaders"
+_streaming_aws4_hmac_sha256_payload = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
+_unsigned_payload = "UNSIGNED_PAYLOAD"
 _x_amz_algorithm = "X-Amz-Algorithm"
+_x_amz_content_sha256 = "x-amz-content-sha256"
 _x_amz_credential = "X-Amz-Credential"
 _x_amz_date = "X-Amz-Date"
 _x_amz_signature = "X-Amz-Signature"
@@ -57,6 +60,9 @@ _iso8601_timestamp_regex = re_compile(
     r"(?P<minute>[0-5][0-9])"
     r"(?P<second>[0-5][0-9]|6[01])"
     r"Z$")
+
+# SHA256 hex-digest regex
+_sha256_regex = re_compile(r"^[0-9a-f]{64}$")
 
 # Match for multiple slashes
 _multislash = re_compile(r"//+")
@@ -530,6 +536,69 @@ class AWSSigV4Verifier(object):
             raise InvalidSignatureError(str(e))
 
         return True
+
+class AWSSigV4S3Verifier(AWSSigV4Verifier):
+    """
+    Variant of AWS SigV4 for S3-style authentication.
+
+    Compared to regular SigV4, SigV4S3 has the following differences:
+    
+    1. Consecutive slashes in URI paths are preserved: "/a//b" is a distinct
+       object from "/a/b".
+    2. The "x-amz-content-sha256" header must be present and set to either
+       the SHA-256 checksum of the content (uploaded in a single chunk),
+       UNSIGNED-PAYLOAD, or STREAMING-AWS4-HMAC-SHA256-PAYLOAD.
+    """
+    @property
+    def canonical_uri_path(self):
+        """
+        The canonicalized URI path from the request.
+
+        This is similar to the SigV4 canonicalized URI path, but with multiple
+        slashes preserved.
+        """
+        if self.uri_path == "":
+            return "/"
+
+        if not self.uri_path.startswith("/"):
+            raise ValueError("URI path is not absolute.")
+
+        # Do *not* handle ., .., etc; these are valid in S3 URLs.
+        return "/".join(
+            [normalize_uri_path_component(el)
+             for el in self.uri_path.split("/")])
+
+    @property
+    def canonical_request(self):
+        """
+        The AWS SigV4S3 canonical request given parameters from an HTTP request.
+        This is similar to the standard AWS SigV4 canonical request, but allows
+        for the replacement of the final sha256(body).hexdigest() line with
+        either 'UNSIGNED-PAYLOAD' or 'STREAMING-AWS4-HMAC-SHA256-PAYLOAD'
+        depending on the value of the (required) x-amz-content-sha256 header.
+        """
+        content_sha256 = self.headers.get(_x_amz_content_sha256)
+        if content_sha256 is None:
+            raise AttributeError(
+                "x-amz-content-sha256 header was not passed in the request")
+
+        if (content_sha256 not in (
+                _streaming_aws4_hmac_sha256_payload, _unsigned_payload)
+                and not _sha256_regex.match(content_sha256)):
+            raise ValueError(
+                "Invalid value for x-amz-content-sha256 header")
+        
+        signed_headers = self.signed_headers
+        header_lines = "".join(
+            ["%s:%s\n" % item for item in iteritems(signed_headers)])
+        header_keys = ";".join([key for key in iterkeys(self.signed_headers)])
+
+        return (self.request_method + "\n" +
+                self.canonical_uri_path + "\n" +
+                self.canonical_query_string + "\n" +
+                header_lines + "\n" +
+                header_keys + "\n" +
+                content_sha256)    
 
 def normalize_uri_path_component(path_component):
     """

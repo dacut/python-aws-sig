@@ -439,6 +439,179 @@ class QuerySignatures(TestCase):
         v.verify()
         return
 
+
+class QueryS3Signatures(TestCase):
+    def runTest(self):
+        now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ten_minutes_ago = (
+            datetime.utcnow() - timedelta(minutes=10)).strftime("%Y%m%dT%H%M%SZ")
+        today = datetime.utcnow().strftime("%Y%m%d")
+        two_days_ago = (datetime.utcnow() - timedelta(days=2)).strftime("%Y%m%d")
+
+        tests = [
+            {
+                'method': "GET",
+                'url': "/a/b",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                },
+            },
+            {
+                'method': "GET",
+                'url': "/a/b?foo=bar&&baz=yay",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                },
+            },
+            {
+                'method': "POST",
+                'url': "////",
+                'body': b"foo=bar",
+                'timestamp': now,
+                'signed_headers': ["content-type", "host"],
+                'headers': {
+                    'host': "host.example.com",
+                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'x-amz-content-sha256': sha256(b"foo=bar").hexdigest(),
+                }
+            },
+            {
+                'method': "POST",
+                'url': "/",
+                'body': b"foo=bar",
+                'timestamp': now,
+                'signed_headers': ["content-type", "host"],
+                'headers': {
+                    'host': "host.example.com",
+                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'x-amz-content-sha256': sha256(b"foo=bar").hexdigest(),
+                },
+                'quote_chars': True
+            },
+            {
+                'method': "GET",
+                'url': "/?foo=bar",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.amazonaws.com",
+                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                },
+                'timestamp_mismatch': 120,
+            },
+        ]
+
+        for test in tests:
+            self.verify(**test)
+
+        return
+    
+    def verify(self, method, url, body, timestamp, headers, signed_headers,
+               timestamp_mismatch=60, bad=False, scope=None,
+               quote_chars=False, fix_qp=True):
+        date = timestamp[:8]
+        credential_scope = "/".join([date, region, service, "aws4_request"])
+
+        if scope is None:
+            scope = access_key + "/" + credential_scope
+        if "?" in url:
+            uri, query_string = url.split("?", 1)
+        else:
+            uri = url
+            query_string = ""
+
+        query_params = [
+            "X-Amz-Algorithm=AWS4-HMAC-SHA256",
+            "X-Amz-Credential=" + scope,
+            "X-Amz-Date=" + timestamp,
+            "X-Amz-SignedHeaders=" + ";".join(signed_headers)]
+        
+        if query_string:
+            query_params.extend(query_string.split("&"))
+
+        def fixup_qp(qp):
+            result = cStringIO()
+            key, value = qp.split("=", 1)
+            for c in value:
+                if c in allowed_qp:
+                    result.write(c)
+                else:
+                    result.write("%%%02X" % ord(c))
+
+            return key + "=" + result.getvalue()
+
+        if fix_qp:
+            canonical_query_string = "&".join(
+                sorted(map(fixup_qp, [qp for qp in query_params if qp])))
+        else:
+            canonical_query_string = "&".join(sorted(query_params))
+
+        canonical_headers = "".join([
+            (header + ":" + headers[header] + "\n")
+            for header in sorted(signed_headers)])
+
+        canonical_req = (
+            method + "\n" +
+            uri + "\n" +
+            canonical_query_string + "\n" +
+            canonical_headers + "\n" +
+            ";".join(signed_headers) + "\n" +
+            headers["x-amz-content-sha256"])
+
+        string_to_sign = (
+            "AWS4-HMAC-SHA256\n" +
+            timestamp + "\n" +
+            credential_scope + "\n" +
+            sha256(canonical_req.encode("utf-8")).hexdigest())
+
+        def sign(secret, value):
+            return hmac.new(secret, value.encode("utf-8"), sha256).digest()
+
+        k_date = sign(b"AWS4" + secret_key.encode("utf-8"), date)
+        k_region = sign(k_date, region)
+        k_service = sign(k_region, service)
+        k_signing = sign(k_service, "aws4_request")
+        signature = hmac.new(
+            k_signing, string_to_sign.encode("utf-8"), sha256).hexdigest()
+
+        query_params.append("X-Amz-Signature=" + signature)
+
+        if quote_chars:
+            bad_qp = []
+            
+            for qp in query_params:
+                result = cStringIO()
+                
+                for c in qp:
+                    if c.isalpha():
+                        result.write("%%%02X" % ord(c))
+                    else:
+                        result.write(c)
+
+                bad_qp.append(result.getvalue())
+            query_params = bad_qp
+
+        v = sigv4.AWSSigV4S3Verifier(
+            request_method=method, uri_path=uri,
+            query_string="&".join(query_params), headers=headers, body=body,
+            region=region, service=service, key_mapping=key_mapping,
+            timestamp_mismatch=timestamp_mismatch)
+        
+        if not bad:
+            self.assertEqual(v.canonical_request, canonical_req)
+            self.assertEqual(v.string_to_sign, string_to_sign)
+        v.verify()
+        return
+
 class BadTypeInitializer(TestCase):
     def runTest(self):
         params = ["GET", "/", "", {}, "", "", "", {}]
