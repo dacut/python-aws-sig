@@ -122,7 +122,7 @@ class AWSSigV4Verifier(object):
     @property
     def request_method(self):
         """
-        The HTTP method (GET, SET, PUT) used to make the request.
+        The HTTP method (GET, POST, PUT) used to make the request.
         """
         return self._request_method
 
@@ -571,7 +571,7 @@ def normalize_uri_path_component(path_component):
             if value in _rfc3986_unreserved:
                 result.write(int2byte(value))
             else:
-                result.write(b"%%%02X" % value)
+                result.write(("%%%02X" % value).encode("ascii"))
 
             i += 3
         elif c == _ascii_plus:
@@ -579,7 +579,7 @@ def normalize_uri_path_component(path_component):
             result.write(b"%20")
             i += 1
         else:
-            result.write(b"%%%02X" % c)
+            result.write(("%%%02X" % c).encode("ascii"))
             i += 1
 
     result = result.getvalue()
