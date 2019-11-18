@@ -354,7 +354,7 @@ class QuerySignatures(TestCase):
             uri = url
             query_string = ""
 
-        uri = sub("//+", "/", uri)
+        normalized_uri = sub("//+", "/", uri)
 
         query_params = [
             "X-Amz-Algorithm=AWS4-HMAC-SHA256",
@@ -388,7 +388,7 @@ class QuerySignatures(TestCase):
 
         canonical_req = (
             method + "\n" +
-            uri + "\n" +
+            normalized_uri + "\n" +
             canonical_query_string + "\n" +
             canonical_headers + "\n" +
             ";".join(signed_headers) + "\n" +
