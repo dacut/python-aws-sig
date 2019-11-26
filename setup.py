@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import absolute_import, division, print_function
-from os.path import dirname
+from os.path import dirname, realpath
 from sys import version_info
 from setuptools import setup, Command
 
@@ -12,7 +12,7 @@ setup_requires=[]
 if version_info[0] > 3 or (version_info[0] == 3 and version_info[1] >= 5):
     setup_requires.append("Sphinx>=1.3")
 
-with open(dirname(__file__) + "/README.rst", "r") as fd:
+with open(dirname(realpath(__file__)) + "/README.rst", "r") as fd:
     readme = fd.read()
 
 setup(
