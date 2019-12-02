@@ -132,6 +132,10 @@ class AWSSigV4TestCaseRunner(TestCase):
 # end AWSSigV4TestCaseRunner
 
 class QuerySignatures(TestCase):
+    def __init__(self, *args, **kw):
+        TestCase.__init__(self, *args, **kw)
+        self.maxDiff = 1024
+
     def runTest(self):
         now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         ten_minutes_ago = (
@@ -194,6 +198,30 @@ class QuerySignatures(TestCase):
                 },
                 'timestamp_mismatch': 120,
             },
+            {
+                'method': "GET",
+                'url': "/question%3Fmark%3Furl",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.amazonaws.com",
+                },
+                'timestamp_mismatch': 120,
+                'quote_chars': False
+            },
+            {
+                'method': "GET",
+                'url': "/?foo=bar%20ok",
+                'body': b"",
+                'timestamp': now,
+                'signed_headers': ["host"],
+                'headers': {
+                    'host': "host.us-east-1.amazonaws.com",
+                },
+                'timestamp_mismatch': 120,
+                'fix_qp': False
+            }
         ]
 
         bad = [
@@ -346,6 +374,9 @@ class QuerySignatures(TestCase):
         else:
             uri = url
             query_string = ""
+
+        if not fix_qp:
+            scope = scope.replace("/", "%2F")
 
         normalized_uri = sub("//+", "/", uri)
 
