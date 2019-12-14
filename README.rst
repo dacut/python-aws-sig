@@ -27,13 +27,13 @@ Example Usage
    ...     uri_path="/",
    ...     query_string="a=foo&b=foo",
    ...     headers={
-   ...         "date": "Mon, 09 Sep 2011 23:36:00 GMT",
-   ...         "host": "host.foo.com",
-   ...         "authorization": (
+   ...         "date": ["Mon, 09 Sep 2011 23:36:00 GMT"],
+   ...         "host": ["host.foo.com"],
+   ...         "authorization": [(
    ...             "AWS4-HMAC-SHA256 "
    ...             "Credential=AKIDEXAMPLE/20110909/us-east-1/host/aws4_request, "
    ...             "SignedHeaders=date;host, "
-   ...             "Signature=0dc122f3b28b831ab48ba65cb47300de53fbe91b577fe113edac383730254a3b"),
+   ...             "Signature=0dc122f3b28b831ab48ba65cb47300de53fbe91b577fe113edac383730254a3b")],
    ...    },
    ...    body=b"",
    ...    region="us-east-1",
@@ -50,14 +50,14 @@ Example Usage
    ...     request_method="POST",
    ...     uri_path="/a//b/../c",
    ...     headers={
-   ...         "date": "Mon, 09 Sep 2011 23:36:00 GMT",
-   ...         "host": "host.foo.com",
-   ...         "authorization": (
+   ...         "date": ["Mon, 09 Sep 2011 23:36:00 GMT"],
+   ...         "host": ["host.foo.com"],
+   ...         "authorization": [(
    ...             "AWS4-HMAC-SHA256 "
    ...             "Credential=AKIDEXAMPLE/20110909/us-east-1/host/aws4_request, "
    ...             "SignedHeaders=date;host, "
-   ...             "Signature=6b8af5a1e94a59c511e47267ab0cbfa1783dc42861ab7f09e0dba62680da8b28"),
-   ...         "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+   ...             "Signature=6b8af5a1e94a59c511e47267ab0cbfa1783dc42861ab7f09e0dba62680da8b28")],
+   ...         "x-amz-content-sha256": ["UNSIGNED-PAYLOAD"],
    ...    },
    ...    body=b"Hello world",
    ...    region="us-east-1",

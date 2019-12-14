@@ -24,20 +24,20 @@ Verify an AWS SigV4 signature.
     :param str query_string: Query parameters supplied to the call (the
         part after the '?'). This must be the empty string ("") if no query
         parameters were supplied.
-    :param dict headers: A dictionary of string keys and values of the HTTP
-        headers supplied in the request.
+    :param dict headers: A dictionary of string keys and iterable of string 
+        values of the HTTP headers supplied in the request.
     :param bytes body: The request body. This must be an empty bytes object
         (b"") if no body was supplied (even for GET, DELETE, and LIST
         requests). Note that this *must* be a bytes object in Python 3.
     :param str region: The region the service is operating in (e.g.
         "us-east-1").
     :param str service: The name of the service being accessed.
-    :param key_mapping: A dictionary-like object that provides secret
-        keys given an access key.
+    :param key_mapping: A callable that is invoked to return a secret key
+        given an access key and an optional session token.
     :param timestamp_mismatch: The allowable mismatch in the timestamp
         submitted for the request in seconds. If ``None``, timestamp checking
         is disabled.
-    :type key_mapping: dict-like object
+    :type key_mapping: Callable[str, [str, Optional[str]]
     :type timestamp_mismatch: int or None
 
     :raises TypeError: if request_method, uri_path, query_string, region, or
