@@ -38,9 +38,12 @@ _ascii_percent = ord(b"%")
 _ascii_plus = ord(b"+")
 
 # Header and query string keys
+_application_x_www_form_urlencoded = "application/x-www-form-urlencoded"
 _authorization = "authorization"
 _aws4_request = "aws4_request"
 _aws4_request_bytes = _aws4_request.encode("utf-8")
+_charset = "charset"
+_content_type = "content-type"
 _credential = "Credential"
 _date = "date"
 _signature = "Signature"
@@ -55,11 +58,17 @@ _x_amz_date_lower = "x-amz-date"
 _x_amz_signature = "X-Amz-Signature"
 _x_amz_signedheaders = "X-Amz-SignedHeaders"
 
-# SHA256 hex-digest regex
+# SHA-256 hex-digest regex
 _sha256_regex = re_compile(r"^[0-9a-f]{64}$")
+
+# SHA-256 digest of an empty string
+_sha256_empty_digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 # Match for multiple slashes
 _multislash = re_compile(r"//+")
+
+# Match for multiple spaces
+_multispace = re_compile(r"  +")
 
 # Logging instance
 log = getLogger("awssig.sigv4")
@@ -271,6 +280,37 @@ class AWSSigV4Verifier(object):
         self._headers = new_headers
 
     @property
+    def content_type(self):
+        """
+        A 2-tuple containing the content type and charset of the request body,
+        or None if the content type was not specified.
+        """
+        content_type_values = self.headers.get(_content_type)
+        if not content_type_values:
+            return None
+
+        if len(content_type_values) > 1:
+            raise ValueError("Multiple values for Content-Type header")
+
+        parts = content_type_values[0].split(";")
+        content_type = parts[0]
+
+        for param_str in parts[1:]:
+            param_str = param_str.strip()
+            param_parts = param_str.split("=", 1)
+            if not(param_parts) or len(param_parts) < 2:
+                continue
+
+            param_name = param_parts[0].lower()
+            if param_name == _charset:
+                charset = param_parts[1]
+                break
+        else:
+            charset = "utf-8"
+
+        return content_type, charset
+
+    @property
     def timestamp_mismatch(self):
         """
         The allowable mismatch in the timestamp, in seconds.
@@ -320,6 +360,15 @@ class AWSSigV4Verifier(object):
 
             for value in values:
                 results.append("%s=%s" % (key, value))
+        
+        ct_info = self.content_type
+        if ct_info and ct_info[0] == _application_x_www_form_urlencoded:
+            # Body is a form; include its parts in our result
+            charset = ct_info[1]
+            for key, values in iteritems(normalize_query_parameters(
+                    self.body.decode(charset))):
+                for value in values:
+                    results.append("%s=%s" % (key, value))
 
         return "&".join(sorted(results))
 
@@ -382,9 +431,11 @@ class AWSSigV4Verifier(object):
             raise AttributeError("SignedHeaders is not canonicalized: %r" %
                                  (signed_headers,))
 
-        # Allow iteration in-order.
+        # Allow iteration in-order. Replace multiple spaces in header values
+        # with single spaces.
         return OrderedDict([
-            (header, ",".join(self.headers[header]))
+            (header, ",".join(
+                [_multispace.sub(" ", v) for v in self.headers[header]]))
             for header in signed_headers.split(";")])
 
     @property
@@ -506,14 +557,18 @@ class AWSSigV4Verifier(object):
             ["%s:%s\n" % item for item in iteritems(signed_headers)])
         header_keys = ";".join([key for key in iterkeys(self.signed_headers)])
 
-        log.info("canonical_request: header_lines=%s", header_lines)
+        ct_info = self.content_type
+        if ct_info and ct_info[0] == _application_x_www_form_urlencoded:
+            body_digest = _sha256_empty_digest
+        else:
+            body_digest = sha256(self.body).hexdigest()
 
         return (self.request_method + "\n" +
                 self.canonical_uri_path + "\n" +
                 self.canonical_query_string + "\n" +
                 header_lines + "\n" +
                 header_keys + "\n" +
-                sha256(self.body).hexdigest())
+                body_digest)
 
     @property
     def string_to_sign(self):
