@@ -300,7 +300,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 }
             },
             {
@@ -311,7 +311,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
                 'quote_chars': True
             },
@@ -362,7 +362,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["host", "content-type"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 }
             },
             {
@@ -373,7 +373,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
                 # Invalid credential scope format
                 'scope': "foo"
@@ -387,7 +387,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
             },
             {
@@ -399,7 +399,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
             },
             {
@@ -411,7 +411,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
             },
             {
@@ -422,7 +422,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
                 # Incorrect region
                 'scope': (access_key + "/" + today + "/x-foo-bar/" + service +
@@ -436,7 +436,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
                 # Incorrect date
                 'scope': (access_key + "/" + two_days_ago + "/" + region + "/" + service +
@@ -451,7 +451,7 @@ class QuerySignatures(TestCase):
                 'signed_headers': ["content-type", "host"],
                 'headers': {
                     'host': ["host.example.com"],
-                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'content-type': ["application/octet-stream"],
                 },
                 'fix_qp': False
             },
