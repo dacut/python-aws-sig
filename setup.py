@@ -17,7 +17,7 @@ with open(dirname(realpath(__file__)) + "/README.rst", "r") as fd:
 
 setup(
     name="awssig",
-    version="0.3.2",
+    version="0.4.0",
     packages=['awssig'],
     install_requires=["pytz>=2019.3", "six>=1.0"],
     setup_requires=setup_requires,
