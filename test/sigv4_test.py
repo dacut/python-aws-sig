@@ -92,10 +92,10 @@ class AWSSigV4TestCaseRunner(TestCase):
             body = fd.read()
 
             first_space = method_line.find(" ")
-            second_space = method_line.find(" ", first_space + 1)
+            last_space = method_line.rfind(" ")
             
             method = method_line[:first_space]
-            uri_path = method_line[first_space + 1:second_space]
+            uri_path = method_line[first_space + 1:last_space]
 
             qpos = uri_path.find("?")
             if qpos == -1:
