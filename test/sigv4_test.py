@@ -18,7 +18,7 @@ region = "us-east-1"
 service = "service"
 access_key = "AKIDEXAMPLE"
 secret_key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
-key_mapping = { access_key: secret_key }
+key_mapping = lambda access_key, session_token=None: secret_key
 remove_auth = "remove_auth"
 wrong_authtype = "wrong_authtype"
 clobber_sig_equals = "clobber_sig_equals"

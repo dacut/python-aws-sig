@@ -55,6 +55,8 @@ _x_amz_content_sha256 = "x-amz-content-sha256"
 _x_amz_credential = "X-Amz-Credential"
 _x_amz_date = "X-Amz-Date"
 _x_amz_date_lower = "x-amz-date"
+_x_amz_security_token = "X-Amz-Security-Token"
+_x_amz_security_token_lower = "x-amz-security-token"
 _x_amz_signature = "X-Amz-Signature"
 _x_amz_signedheaders = "X-Amz-SignedHeaders"
 
@@ -106,7 +108,7 @@ class AWSSigV4Verifier(object):
         kep_mapping: A callable object that will be invoked to return a
             secret key. This will be invoked with one or two arguments.
 
-            If only an access key is specified, it will be invoked as:519
+            If only an access key is specified, it will be invoked as:
                 key_mapping(aws_access_key_id=access_key)
 
             If an access key and token are specified, it will be invoked as:
@@ -525,6 +527,27 @@ class AWSSigV4Verifier(object):
         return key
 
     @property
+    def session_token(self):
+        """
+        The session token passed with the request, or None if a session token
+        was not specified.
+        """
+        session_token_values = self.query_parameters.get(_x_amz_security_token)
+        if session_token_values:
+            if len(session_token_values) > 1:
+                raise ValueError(
+                    "Multiple X-Amz-Security-Token query parameters provided")
+        else:
+            session_token_values = self.headers.get(_x_amz_security_token_lower)
+            if not session_token_values:
+                return None
+            if len(session_token_values) > 1:
+                raise ValueError(
+                    "Multiple X-Amz-Security-Token headers provided")
+        
+        return session_token_values[0]
+
+    @property
     def request_signature(self):
         """
         The signature passed in the request.
@@ -589,7 +612,26 @@ class AWSSigV4Verifier(object):
         """
         The AWS SigV4 signature expected from the request.
         """
-        k_secret = b"AWS4" + self.key_mapping[self.access_key].encode("utf-8")
+        session_token = self.session_token
+        try:
+            if session_token:
+                secret_key = self.key_mapping(self.access_key, session_token)
+            else:
+                secret_key = self.key_mapping(self.access_key)
+        except TypeError as e:
+            if "is not callable" not in str(e):
+                raise
+            
+            # Old docs specify that we call this using __getitem__ (sigh)
+            if session_token:
+                secret_key = self.key_mapping[(self.access_key, session_token)]
+            else:
+                secret_key = self.key_mapping[self.access_key]
+
+            warn("key_mapping needs to be updated to be a callable object",
+                 DeprecationWarning, _get_callee_depth())
+
+        k_secret = b"AWS4" + secret_key.encode("utf-8")
         k_date = hmac.new(k_secret, self.request_date_utc.encode("utf-8"),
                           sha256).digest()
         k_region = hmac.new(k_date, self.region.encode("utf-8"),
