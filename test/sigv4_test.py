@@ -2,19 +2,20 @@
 from __future__ import absolute_import, division, print_function
 from datetime import datetime, timedelta
 from functools import partial
-from glob import glob
 from hashlib import sha256
 import hmac
 import awssig.sigv4 as sigv4
+from os import walk
 from os.path import basename, dirname, splitext
 from re import sub
 from six import binary_type, iteritems, string_types
 from six.moves import cStringIO, range
 from string import ascii_letters, digits
-from unittest import TestCase
+from sys import stderr
+from unittest import skip, TestCase
 
 region = "us-east-1"
-service = "host"
+service = "service"
 access_key = "AKIDEXAMPLE"
 secret_key = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
 key_mapping = { access_key: secret_key }
@@ -30,47 +31,57 @@ delete_date = "delete_date"
 allowed_qp = ascii_letters + digits + "-_.~"
 
 class AWSSigV4TestCaseRunner(TestCase):
-    def __init__(self, filebase, tweaks="", methodName="runTest"):
-        super(AWSSigV4TestCaseRunner, self).__init__(methodName=methodName)
-        #if filebase == "runTest":
-        #    raise ValueError()
-        self.filebase = filebase
-        self.tweaks = tweaks
-        return
-        
-    def runTest(self):
-        with open(self.filebase + ".sreq", "rb") as fd:
+    basedir = dirname(__file__) + "/aws-sig-v4-test-suite/"
+    tweaks = (
+        "", remove_auth, wrong_authtype, clobber_sig_equals, delete_credential,
+        delete_signature, dup_signature, delete_date,
+    )
+
+    def run_sigv4_case(self, filebase, tweak=""):
+        filebase = self.basedir + filebase
+
+        with open(filebase + ".sreq", "rb") as fd:
             method_line = fd.readline().strip()
             if isinstance(method_line, binary_type):
                 method_line = method_line.decode("utf-8")
             headers = {}
 
+            last_header = None
+
             while True:
                 line = fd.readline()
-                if line in (b"\r\n", b""):
+                if line in (b"\n", b"",):
                     break
 
-                self.assertTrue(line.endswith(b"\r\n"))
                 line = line.decode("utf-8")
-                header, value = line[:-2].split(":", 1)
-                key = header.lower()
-                value = value.strip()
+                if line.startswith(" ") or line.startswith("\t"):
+                    assert last_header is not None
+                    header = last_header
+                    value = line.lstrip()
+                else:
+                    try:
+                        header, value = line.split(":", 1)
+                    except ValueError as e:
+                        raise ValueError("Invalid header line: %s" % line)
+                    key = header.lower()
+                    value = value.strip()
+                    last_header = header
 
                 if key == "authorization":
-                    if self.tweaks == remove_auth:
+                    if tweak == remove_auth:
                         continue
-                    elif self.tweaks == wrong_authtype:
+                    elif tweak == wrong_authtype:
                         value = "XX" + value
-                    elif self.tweaks == clobber_sig_equals:
+                    elif tweak == clobber_sig_equals:
                         value = value.replace("Signature=", "Signature")
-                    elif self.tweaks == delete_credential:
+                    elif tweak == delete_credential:
                         value = value.replace("Credential=", "Foo=")
-                    elif self.tweaks == delete_signature:
+                    elif tweak == delete_signature:
                         value = value.replace("Signature=", "Foo=")
-                    elif self.tweaks == dup_signature:
+                    elif tweak == dup_signature:
                         value += ", Signature=foo"
-                elif key == "date":
-                    if self.tweaks == delete_date:
+                elif key in ("date", "x-amz-date",):
+                    if tweak == delete_date:
                         continue
                 
                 if key in headers:
@@ -78,8 +89,6 @@ class AWSSigV4TestCaseRunner(TestCase):
                 else:
                     headers[key] = [value]
 
-            headers = dict([(key, ",".join(sorted(values)))
-                            for key, values in iteritems(headers)])
             body = fd.read()
 
             first_space = method_line.find(" ")
@@ -95,10 +104,10 @@ class AWSSigV4TestCaseRunner(TestCase):
                 query_string = uri_path[qpos+1:]
                 uri_path = uri_path[:qpos]
 
-        with open(self.filebase + ".creq", "r") as fd:
+        with open(filebase + ".creq", "r") as fd:
             canonical_request = fd.read().replace("\r", "")
 
-        with open(self.filebase + ".sts", "r") as fd:
+        with open(filebase + ".sts", "r") as fd:
             string_to_sign = fd.read().replace("\r", "")
 
         v = sigv4.AWSSigV4Verifier(
@@ -106,30 +115,149 @@ class AWSSigV4TestCaseRunner(TestCase):
             headers=headers, body=body, region=region, service=service,
             key_mapping=key_mapping, timestamp_mismatch=None)
 
-        if self.tweaks:
+        if tweak:
             try:
                 v.verify()
                 self.fail("Expected verify() to throw an InvalidSignature "
-                          "error")
+                          "error for tweak %s" % tweak)
             except sigv4.InvalidSignatureError:
                 pass
         else:
             self.assertEqual(
                 v.canonical_request, canonical_request,
                 "Canonical request mismatch in %s\nExpected: %r\nReceived: %r" %
-                (self.filebase, canonical_request, v.canonical_request))
+                (filebase, canonical_request, v.canonical_request))
             self.assertEqual(
                 v.string_to_sign, string_to_sign,
                 "String to sign mismatch in %s\nExpected: %r\nReceived: %r" %
-                (self.filebase, string_to_sign, v.string_to_sign))
+                (filebase, string_to_sign, v.string_to_sign))
             v.verify()
 
-        return
-    # end runTest
+    def test_get_vanilla_utf8_query(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-utf8-query/get-vanilla-utf8-query", tweak)
 
-    def __str__(self):
-        return "AWSSigV4TestCaseRunner: %s" % basename(self.filebase)
-# end AWSSigV4TestCaseRunner
+    def test_get_vanilla_query_order_key_case(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-query-order-key-case/get-vanilla-query-order-key-case", tweak)
+
+    def test_get_header_value_trim(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-header-value-trim/get-header-value-trim", tweak)
+
+    def test_get_vanilla_query_unreserved(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-query-unreserved/get-vanilla-query-unreserved", tweak)
+
+    def test_get_vanilla_query_order_key(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-query-order-key/get-vanilla-query-order-key", tweak)
+
+    def test_get_vanilla(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla/get-vanilla", tweak)
+
+    def test_post_sts_token_post_sts_header_after(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-sts-token/post-sts-header-after/post-sts-header-after", tweak)
+
+    def test_post_sts_token_post_sts_header_before(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-sts-token/post-sts-header-before/post-sts-header-before", tweak)
+
+    def test_get_unreserved(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-unreserved/get-unreserved", tweak)
+
+    def test_get_header_value_multiline(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-header-value-multiline/get-header-value-multiline", tweak)
+
+    def test_post_x_www_form_urlencoded_parameters(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-x-www-form-urlencoded-parameters/post-x-www-form-urlencoded-parameters", tweak)
+
+    def test_post_vanilla(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-vanilla/post-vanilla", tweak)
+
+    @skip("Testcase from AWS appears to be broken")
+    def test_post_x_www_form_urlencoded(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-x-www-form-urlencoded/post-x-www-form-urlencoded", tweak)
+
+    def test_post_header_key_case(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-header-key-case/post-header-key-case", tweak)
+
+    def test_get_vanilla_empty_query_key(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-empty-query-key/get-vanilla-empty-query-key", tweak)
+
+    def test_post_header_key_sort(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-header-key-sort/post-header-key-sort", tweak)
+
+    def test_post_vanilla_empty_query_value(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-vanilla-empty-query-value/post-vanilla-empty-query-value", tweak)
+
+    def test_get_utf8(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-utf8/get-utf8", tweak)
+
+    def test_get_vanilla_query(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-query/get-vanilla-query", tweak)
+
+    def test_get_header_value_order(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-header-value-order/get-header-value-order", tweak)
+
+    def test_post_vanilla_query(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-vanilla-query/post-vanilla-query", tweak)
+
+    def test_get_vanilla_query_order_value(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-vanilla-query-order-value/get-vanilla-query-order-value", tweak)
+
+    def test_post_header_value_case(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("post-header-value-case/post-header-value-case", tweak)
+
+    def test_normalize_path_get_slash(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-slash/get-slash", tweak)
+
+    def test_normalize_path_get_slashes(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-slashes/get-slashes", tweak)
+
+    def test_normalize_path_get_space(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-space/get-space", tweak)
+
+    def test_normalize_path_get_relative(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-relative/get-relative", tweak)
+
+    def test_normalize_path_get_slash_pointless_dot(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-slash-pointless-dot/get-slash-pointless-dot", tweak)
+
+    def test_normalize_path_get_slash_dot_slash(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-slash-dot-slash/get-slash-dot-slash", tweak)
+
+    def test_normalize_path_get_relative_relative(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("normalize-path/get-relative-relative/get-relative-relative", tweak)
+
+    def test_get_header_key_duplicate(self):
+        for tweak in self.tweaks:
+            self.run_sigv4_case("get-header-key-duplicate/get-header-key-duplicate", tweak)
+
 
 class QuerySignatures(TestCase):
     def __init__(self, *args, **kw):
@@ -151,7 +279,7 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
             },
             {
@@ -161,7 +289,7 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
             },
             {
@@ -171,8 +299,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 }
             },
             {
@@ -182,8 +310,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
                 'quote_chars': True
             },
@@ -194,7 +322,7 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
                 'timestamp_mismatch': 120,
             },
@@ -205,7 +333,7 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
                 'timestamp_mismatch': 120,
                 'quote_chars': False
@@ -217,7 +345,7 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
                 'timestamp_mismatch': 120,
                 'fix_qp': False
@@ -233,8 +361,8 @@ class QuerySignatures(TestCase):
                 # Decanonicalized signed-headers
                 'signed_headers': ["host", "content-type"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 }
             },
             {
@@ -244,8 +372,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
                 # Invalid credential scope format
                 'scope': "foo"
@@ -258,8 +386,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
             },
             {
@@ -270,8 +398,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
             },
             {
@@ -282,8 +410,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
             },
             {
@@ -293,8 +421,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
                 # Incorrect region
                 'scope': (access_key + "/" + today + "/x-foo-bar/" + service +
@@ -307,8 +435,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
                 # Incorrect date
                 'scope': (access_key + "/" + two_days_ago + "/" + region + "/" + service +
@@ -322,8 +450,8 @@ class QuerySignatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
                 },
                 'fix_qp': False
             },
@@ -335,7 +463,7 @@ class QuerySignatures(TestCase):
                 'timestamp': ten_minutes_ago,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
                 'timestamp_mismatch': 120,
             },
@@ -347,7 +475,7 @@ class QuerySignatures(TestCase):
                 'timestamp': "20151008T999999Z",
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
+                    'host': ["host.us-east-1.amazonaws.com"],
                 },
             },
         ]
@@ -407,7 +535,7 @@ class QuerySignatures(TestCase):
             canonical_query_string = "&".join(sorted(query_params))
 
         canonical_headers = "".join([
-            (header + ":" + headers[header] + "\n")
+            (header + ":" + ",".join(headers[header]) + "\n")
             for header in sorted(signed_headers)])
 
         canonical_req = (
@@ -480,8 +608,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': [sha256(b"").hexdigest()],
                 },
             },
             {
@@ -491,8 +619,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': "UNSIGNED-PAYLOAD",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': ["UNSIGNED-PAYLOAD"],
                 },
             },
             {
@@ -502,8 +630,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': "STREAMING-AWS4-HMAC-SHA256-PAYLOAD",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': ["STREAMING-AWS4-HMAC-SHA256-PAYLOAD"],
                 },
             },
             {
@@ -513,8 +641,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': [sha256(b"").hexdigest()],
                 },
             },
             {
@@ -524,9 +652,9 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
-                    'x-amz-content-sha256': sha256(b"foo=bar").hexdigest(),
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'x-amz-content-sha256': [sha256(b"foo=bar").hexdigest()],
                 }
             },
             {
@@ -536,9 +664,9 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["content-type", "host"],
                 'headers': {
-                    'host': "host.example.com",
-                    'content-type': "application/x-www-form-urlencoded; charset=UTF-8",
-                    'x-amz-content-sha256': sha256(b"foo=bar").hexdigest(),
+                    'host': ["host.example.com"],
+                    'content-type': ["application/x-www-form-urlencoded; charset=UTF-8"],
+                    'x-amz-content-sha256': [sha256(b"foo=bar").hexdigest()],
                 },
                 'quote_chars': True
             },
@@ -549,8 +677,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.amazonaws.com",
-                    'x-amz-content-sha256': sha256(b"").hexdigest(),
+                    'host': ["host.us-east-1.amazonaws.com"],
+                    'x-amz-content-sha256': [sha256(b"").hexdigest()],
                 },
                 'timestamp_mismatch': 120,
             },
@@ -576,7 +704,7 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
                 },
             },
             {
@@ -586,7 +714,7 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
                 },
             },
         ]
@@ -610,8 +738,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': "hello world",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': ["hello world"],
                 },
             },
             {
@@ -621,8 +749,8 @@ class QueryS3Signatures(TestCase):
                 'timestamp': now,
                 'signed_headers': ["host"],
                 'headers': {
-                    'host': "host.us-east-1.s3.amazonaws.com",
-                    'x-amz-content-sha256': "abcd1234",
+                    'host': ["host.us-east-1.s3.amazonaws.com"],
+                    'x-amz-content-sha256': ["abcd1234"],
                 },
             },
         ]
@@ -672,7 +800,7 @@ class QueryS3Signatures(TestCase):
             canonical_query_string = "&".join(sorted(query_params))
 
         canonical_headers = "".join([
-            (header + ":" + headers[header] + "\n")
+            (header + ":" + ",".join(headers[header]) + "\n")
             for header in sorted(signed_headers)])
 
         canonical_req = (
@@ -681,7 +809,7 @@ class QueryS3Signatures(TestCase):
             canonical_query_string + "\n" +
             canonical_headers + "\n" +
             ";".join(signed_headers) + "\n" +
-            headers.get("x-amz-content-sha256", sha256(body).hexdigest()))
+            headers.get("x-amz-content-sha256", [sha256(body).hexdigest()])[0])
 
         string_to_sign = (
             "AWS4-HMAC-SHA256\n" +
@@ -772,32 +900,3 @@ class BadInitializer(TestCase):
 
         with self.assertRaises(ValueError):
             sigv4.AWSSigV4Verifier(timestamp_mismatch=-1)
-
-# Hide the test case class from automatic module discovery tools.
-_test_classes = [AWSSigV4TestCaseRunner]
-del AWSSigV4TestCaseRunner
-
-def test_aws_suite():
-    global AWSSigV4TestCaseRunner
-    AWSSigV4TestCaseRunner = _test_classes[0]
-    tests = []
-    for filename in glob(dirname(__file__) + "/aws4_testsuite/*.req"):
-        filebase = splitext(filename)[0]
-        tests.append(AWSSigV4TestCaseRunner(filebase))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=remove_auth))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=wrong_authtype))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=clobber_sig_equals))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=delete_credential))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=delete_signature))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=dup_signature))
-        tests.append(AWSSigV4TestCaseRunner(filebase, tweaks=delete_date))
-
-    for i, test in enumerate(tests):
-        test.runTest()
-
-# Local variables:
-# mode: Python
-# tab-width: 8
-# indent-tabs-mode: nil
-# End:
-# vi: set expandtab tabstop=8

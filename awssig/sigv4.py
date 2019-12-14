@@ -4,15 +4,22 @@ SigV4 authentication routines.
 
 from __future__ import absolute_import
 from collections import OrderedDict
+from datetime import datetime, timedelta
 from hashlib import sha256
 import hmac
+from logging import getLogger
+from os.path import basename, split as path_split, splitext
 from re import compile as re_compile
 from string import ascii_letters, digits
-from datetime import datetime, timedelta
+from traceback import extract_stack
+from warnings import warn
+
 from six import (
     BytesIO, binary_type, indexbytes, int2byte, iterbytes, iteritems,
     iterkeys, string_types)
 from six.moves.urllib.parse import unquote as url_unquote # pylint: disable=E0401
+from pytz import UTC
+from .dateutil import parse_iso8601, parse_rfc2282
 from .exc import InvalidSignatureError
 
 # pylint: disable=C0103
@@ -30,9 +37,6 @@ _ascii_percent = ord(b"%")
 # ASCII code for '+'
 _ascii_plus = ord(b"+")
 
-# HTTP date format
-_http_date_format = "%a, %d %b %Y %H:%M:%S %Z"
-
 # Header and query string keys
 _authorization = "authorization"
 _aws4_request = "aws4_request"
@@ -47,25 +51,18 @@ _x_amz_algorithm = "X-Amz-Algorithm"
 _x_amz_content_sha256 = "x-amz-content-sha256"
 _x_amz_credential = "X-Amz-Credential"
 _x_amz_date = "X-Amz-Date"
+_x_amz_date_lower = "x-amz-date"
 _x_amz_signature = "X-Amz-Signature"
 _x_amz_signedheaders = "X-Amz-SignedHeaders"
-
-# ISO8601 timestamp format regex
-_iso8601_timestamp_regex = re_compile(
-    r"^(?P<year>[0-9]{4})"
-    r"(?P<month>0[1-9]|1[0-2])"
-    r"(?P<day>0[1-9]|[12][0-9]|3[01])"
-    r"T"
-    r"(?P<hour>[01][0-9]|2[0-3])"
-    r"(?P<minute>[0-5][0-9])"
-    r"(?P<second>[0-5][0-9]|6[01])"
-    r"Z$")
 
 # SHA256 hex-digest regex
 _sha256_regex = re_compile(r"^[0-9a-f]{64}$")
 
 # Match for multiple slashes
 _multislash = re_compile(r"//+")
+
+# Logging instance
+log = getLogger("awssig.sigv4")
 
 class AWSSigV4Verifier(object):
     # pylint: disable=R0902,R0904
@@ -79,7 +76,7 @@ class AWSSigV4Verifier(object):
             request_method: str,
             uri_path: str,
             query_string: str,
-            headers: Dict[str, str],
+            headers: Dict[str, Iterable[str]],
             body: bytes,
             region: str,
             service: str,
@@ -241,16 +238,37 @@ class AWSSigV4Verifier(object):
         if not isinstance(value, dict):
             raise TypeError("Expected headers to be a dict.")
 
-        for key, item_value in iteritems(value):
+        new_headers = {}
+
+        for key, header_values in iteritems(value):
             if not isinstance(key, string_types):
                 raise TypeError("Header must be a string: %r" % (key,))
 
-            if not isinstance(item_value, string_types):
-                raise TypeError(
-                    "Header %r value must be a string: %r" % (key, item_value))
+            if isinstance(header_values, string_types):
+                depth = _get_callee_depth()
 
-        self._headers = dict(value)
-        return
+                warn(
+                    "Header %r value must be an iterable of strings: %r" %
+                    (key, type(header_values).__name__),
+                    category=DeprecationWarning, stacklevel=depth)
+                new_headers[key] = [header_values]
+            else:
+                values = []
+                try:
+                    hv_iter = iter(header_values)
+                except TypeError:
+                    raise TypeError(
+                        "Header %r value must be an iterable of strings: %r" %
+                        (key, type(header_values).__name__))
+                for i, el in enumerate(hv_iter):
+                    if not isinstance(el, string_types):
+                        raise TypeError(
+                            "Header %r value %d must be a string: %r" %
+                            (key, i, type(el).__name__))
+                    values.append(el)
+                new_headers[key] = values
+
+        self._headers = new_headers
 
     @property
     def timestamp_mismatch(self):
@@ -312,9 +330,14 @@ class AWSSigV4Verifier(object):
         Authorization header is not present or is not an AWS SigV4 header, an
         AttributeError exception is raised.
         """
-        auth = self.headers.get(_authorization)
-        if auth is None:
+        auth_values = self.headers.get(_authorization)
+        if auth_values is None:
             raise AttributeError("Authorization header is not present")
+
+        if len(auth_values) > 1:
+            raise ValueError("Multiple Authorization headers present")
+
+        auth = auth_values[0]
 
         if not auth.startswith(AWS4_HMAC_SHA256 + " "):
             raise AttributeError("Authorization header is not AWS SigV4")
@@ -360,59 +383,66 @@ class AWSSigV4Verifier(object):
                                  (signed_headers,))
 
         # Allow iteration in-order.
-        return OrderedDict([(header, self.headers[header])
-                            for header in signed_headers.split(";")])
+        return OrderedDict([
+            (header, ",".join(self.headers[header]))
+            for header in signed_headers.split(";")])
 
     @property
-    def request_date(self):
+    def request_date_utc(self):
         """
-        The date of the request in ISO8601 YYYYMMDD format.
+        The UTC date of the request in ISO8601 YYYYMMDD format.
 
         If this is not available in the query parameters or headers, or the
         value is not a valid format for AWS SigV4, an AttributeError exception
         is raised.
         """
-        return self.request_timestamp[:8]
+        return self.request_timestamp.astimezone(UTC).strftime("%Y%m%d")
 
     @property
     def request_timestamp(self):
         """
-        The timestamp of the request in ISO8601 YYYYMMDD'T'HHMMSS'Z' format.
+        The timestamp of the request as a Timestamp.
 
         If this is not available in the query parameters or headers, or the
         value is not a valid format for AWS SigV4, an AttributeError exception
         is raised.
         """
-        amz_date = self.query_parameters.get(_x_amz_date)
-        if amz_date is not None:
-            amz_date = amz_date[0]
+        amz_date_values = self.query_parameters.get(_x_amz_date)
+        if amz_date_values is not None:
+            if len(amz_date_values) > 1:
+                raise ValueError(
+                    "Multiple X-Amz-Date query parameters present")
         else:
-            amz_date = self.headers.get(_x_amz_date)
-            if amz_date is None:
-                date = self.headers.get(_date)
-                if date is None:
+            amz_date_values = self.headers.get(_x_amz_date_lower)
+            if amz_date_values is not None:
+                if len(amz_date_values) > 1:
+                    raise ValueError(
+                        "Multiple X-Amz-Date header values present")
+            else:
+                amz_date_values = self.headers.get(_date)
+                if amz_date_values is None:
                     raise AttributeError("Date was not passed in the request")
+                elif len(amz_date_values) > 1:
+                    raise ValueError(
+                        "Multiple Date header values present")
 
-                # This isn't really valid -- seems to be a bug in the AWS
-                # documentation.
-                if _iso8601_timestamp_regex.match(date):
-                    amz_date = date # pragma: nocover
-                else:
-                    # Parse this as an HTTP date and reformulate it.
-                    amz_date = (datetime.strptime(date, _http_date_format)
-                                .strftime("%Y%m%dT%H%M%SZ"))
-        if not _iso8601_timestamp_regex.match(amz_date):
-            raise AttributeError("X-Amz-Date parameter is not a valid ISO8601 "
-                                 "string: %r" % amz_date)
+        date_str = amz_date_values[0]
+        date = parse_iso8601(date_str)
+        if not date:
+            date = parse_rfc2282(date_str)
+        if not date:
+            raise AttributeError(
+                "Date is not a valid ISO 8601 or RFC 2282 string: %r" %
+                date_str)
 
-        return amz_date
+        return date
 
     @property
     def credential_scope(self):
         """
         The scope of the credentials to use.
         """
-        return (self.request_date + "/" + self.region + "/" + self.service +
+        return (self.request_date_utc + "/" + self.region + "/" + self.service +
                 "/" + _aws4_request)
 
     @property
@@ -476,6 +506,8 @@ class AWSSigV4Verifier(object):
             ["%s:%s\n" % item for item in iteritems(signed_headers)])
         header_keys = ";".join([key for key in iterkeys(self.signed_headers)])
 
+        log.info("canonical_request: header_lines=%s", header_lines)
+
         return (self.request_method + "\n" +
                 self.canonical_uri_path + "\n" +
                 self.canonical_query_string + "\n" +
@@ -488,8 +520,11 @@ class AWSSigV4Verifier(object):
         """
         The AWS SigV4 string being signed.
         """
+        timestamp_str = (
+            self.request_timestamp.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"))
+
         return (AWS4_HMAC_SHA256 + "\n" +
-                self.request_timestamp + "\n" +
+                timestamp_str + "\n" +
                 self.credential_scope + "\n" +
                 sha256(self.canonical_request.encode("utf-8")).hexdigest())
 
@@ -499,7 +534,7 @@ class AWSSigV4Verifier(object):
         The AWS SigV4 signature expected from the request.
         """
         k_secret = b"AWS4" + self.key_mapping[self.access_key].encode("utf-8")
-        k_date = hmac.new(k_secret, self.request_date.encode("utf-8"),
+        k_date = hmac.new(k_secret, self.request_date_utc.encode("utf-8"),
                           sha256).digest()
         k_region = hmac.new(k_date, self.region.encode("utf-8"),
                             sha256).digest()
@@ -518,17 +553,9 @@ class AWSSigV4Verifier(object):
         """
         try:
             if self.timestamp_mismatch is not None:
-                m = _iso8601_timestamp_regex.match(self.request_timestamp)
-                year = int(m.group("year"))
-                month = int(m.group("month"))
-                day = int(m.group("day"))
-                hour = int(m.group("hour"))
-                minute = int(m.group("minute"))
-                second = int(m.group("second"))
-
-                req_ts = datetime(year, month, day, hour, minute, second)
+                req_ts = self.request_timestamp.astimezone(UTC)
                 mm_td = timedelta(seconds=self.timestamp_mismatch)
-                now = datetime.utcnow()
+                now = datetime.now(UTC)
                 min_ts = now - mm_td
                 max_ts = now + mm_td
 
@@ -586,16 +613,23 @@ class AWSSigV4S3Verifier(AWSSigV4Verifier):
         either 'UNSIGNED-PAYLOAD' or 'STREAMING-AWS4-HMAC-SHA256-PAYLOAD'
         depending on the value of the (required) x-amz-content-sha256 header.
         """
-        content_sha256 = self.headers.get(_x_amz_content_sha256)
-        if content_sha256 is None:
+        content_sha256_values = self.headers.get(_x_amz_content_sha256)
+        if not content_sha256_values:
             raise AttributeError(
                 "x-amz-content-sha256 header was not passed in the request")
+
+        if len(content_sha256_values) > 1:
+            raise ValueError(
+                "Multiple x-amz-content-sha256 headers present")
+        
+        content_sha256 = content_sha256_values[0]
 
         if (content_sha256 not in (
                 _streaming_aws4_hmac_sha256_payload, _unsigned_payload)
                 and not _sha256_regex.match(content_sha256)):
             raise ValueError(
-                "Invalid value for x-amz-content-sha256 header: %r" % (content_sha256))
+                "Invalid value for x-amz-content-sha256 header: %r" %
+                (content_sha256))
         
         signed_headers = self.signed_headers
         header_lines = "".join(
@@ -757,6 +791,22 @@ def normalize_query_parameters(query_string):
 
     return dict([(key, sorted(values))
                  for key, values in iteritems(result)])
+
+def _get_callee_depth():
+    #for depth, stack_segment in enumerate(reversed(extract_stack())):
+    #    log.warning("DEPTH=%2d SS=%s", depth, stack_segment)    
+
+    for depth, stack_segment in enumerate(reversed(extract_stack())):
+        filename = stack_segment.filename
+        if not filename:
+            return depth
+
+        path_parts = path_split(filename)[-2:]
+        if (len(path_parts) != 2
+            or basename(path_parts[0]) != "awssig"
+            or splitext(path_parts[1])[0] != "sigv4"):
+            return depth
+
 
 # Local variables:
 # mode: Python

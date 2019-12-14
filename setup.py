@@ -19,7 +19,7 @@ setup(
     name="awssig",
     version="0.3.2",
     packages=['awssig'],
-    install_requires=["six>=1.0"],
+    install_requires=["pytz>=2019.3", "six>=1.0"],
     setup_requires=setup_requires,
 
     # PyPI information
