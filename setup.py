@@ -17,7 +17,7 @@ with open(dirname(realpath(__file__)) + "/README.rst", "r") as fd:
 
 setup(
     name="awssig",
-    version="0.4.0",
+    version="0.5.0",
     packages=['awssig'],
     install_requires=["pytz>=2019.3", "six>=1.0"],
     setup_requires=setup_requires,
@@ -31,7 +31,7 @@ setup(
     license="Apache 2.0",
     url="https://github.com/dacut/python-aws-sig",
     classifiers=[
-        'Development Status :: 2 - Pre-Alpha',
+        'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python',
