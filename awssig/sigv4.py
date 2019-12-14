@@ -350,7 +350,8 @@ class AWSSigV4Verifier(object):
         The canonical query string from the query parameters.
 
         This takes the query string from the request and orders the parameters
-        in
+        into a string. If the body is of type application/x-www-form-urlencoded,
+        it is included as part of the content string.
         """
         results = []
         for key, values in iteritems(self.query_parameters):
@@ -658,6 +659,25 @@ class AWSSigV4S3Verifier(AWSSigV4Verifier):
         return "/".join(
             [normalize_uri_path_component(el)
              for el in self.uri_path.split("/")])
+
+    @property
+    def canonical_query_string(self):
+        """
+        The canonical query string from the query parameters.
+
+        This takes the query string from the request and orders the parameters
+        into a string. The body is always ignored for S3 requests.
+        """
+        results = []
+        for key, values in iteritems(self.query_parameters):
+            # Don't include the signature itself.
+            if key == _x_amz_signature:
+                continue
+
+            for value in values:
+                results.append("%s=%s" % (key, value))
+
+        return "&".join(sorted(results))
 
     @property
     def canonical_request(self):
