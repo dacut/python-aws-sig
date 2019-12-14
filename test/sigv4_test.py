@@ -57,7 +57,7 @@ class AWSSigV4TestCaseRunner(TestCase):
                 if line.startswith(" ") or line.startswith("\t"):
                     assert last_header is not None
                     header = last_header
-                    value = line.lstrip()
+                    value = line.strip()
                 else:
                     try:
                         header, value = line.split(":", 1)
